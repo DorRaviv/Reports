@@ -1,0 +1,31 @@
+Israel	Tel Aviv Tel-Aviv
+Israel	Haifa Hefa
+United States	Kirkland Washington
+Ukraine	Pereyaslav-Khmel'Nyts'Kyy Kyivs'Ka Oblast'
+Israel	Giv'Atayim Tel-Aviv
+United States	New York City New York
+Israel	Hadera Hefa
+Israel	West Jerusalem Yerushalayim
+United States	Bronx New York
+United States	Weehawken New Jersey
+Israel	Netanya Hamerkaz
+Ukraine	Odessa Odes'Ka Oblast'
+United States	Stony Brook New York
+Israel	Nahariyya Hatsafon
+Israel	Maalot Tarshiha Hatsafon
+United States	Rahway New Jersey
+Ukraine	Yaremcha Ivano-Frankivs'Ka Oblast'
+United States	Babylon New York
+United States	Long Island City New York
+United States	Mount Laurel New Jersey
+Israel	Nesher Hefa
+Ukraine	Kharkiv Kharkivs'Ka Oblast'
+United States	Penfield New York
+Israel	Yafo Tel-Aviv
+Israel	El Fureidis Hefa
+United States	Somerville New Jersey
+United States	Hamburg New York
+Israel	Gan Yavne Hamerkaz
+United States	Secaucus New Jersey
+Israel	Rumat Heib Hatsafon
+Israel	Rishon Leziyyon Hamerkaz
