@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import argparse
 from twilio.rest import TwilioRestClient
 import gspread
+from collections import OrderedDict
 from oauth2client.service_account import ServiceAccountCredentials
 
 """
@@ -45,14 +46,15 @@ APPSFLYER_API = '0a067baa-4639-4f5d-9099-75461a1f3d2f '
 # Please Check out https://www.appsee.com/docs/serverapi for further documentation.
 # You can Choose whatever you want: Sessions / Usage / Analytics etc. Just Change in the following REQUEST_URL.
 
-# Defining Class For Selected Date
+# Defining Class For Different Date Formats
 
 
 class Yesterday:
     def __init__(self):
         # TODO: Remember to change Day=1- Done
         self.Date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        self.DateForSheet = (datetime.now() - timedelta(days=1)).strftime("%m/%d/%y")
+        self.DateForSheet_first = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%y")
+        self.DateForSheet_second = (datetime.now() - timedelta(days=1)).strftime("%m/%d/%y")
 
 
 def setup():
@@ -95,13 +97,14 @@ def login_to_sheet():
     return spread_sheet
 
 
-def update_crashes_sheet(from_date, unique_sessions, sessions, crashes):
+def update_crashes_sheet(date_for_sheet_first, date_for_sheet_second, unique_sessions, sessions, crashes):
     try:
         crashes_sheet = login_to_sheet().worksheet("Crashes")
         # Updating Data on SpreadSheet, First Available Row...
         content = crashes_sheet.get_all_values()
         row_number = len([row for row in content]) + 1
-        crashes_sheet.update_cell(row_number, 1, from_date)
+        crashes_sheet.update_cell(row_number, 1, date_for_sheet_first)
+        crashes_sheet.update_cell(row_number, 2, date_for_sheet_second)
         crashes_sheet.update_cell(row_number, 3, unique_sessions)
         crashes_sheet.update_cell(row_number, 4, sessions)
         crashes_sheet.update_cell(row_number, 5, crashes)
@@ -110,7 +113,8 @@ def update_crashes_sheet(from_date, unique_sessions, sessions, crashes):
         print 'There Was An Error Updating SpreadSheet Crashes!\nThe Error Is: ' + str(ex)
 
 
-def update_Distribution_index_ios(from_date, yesterday_Users, yesterday_FirstPeopleReceived,
+def update_Distribution_index_ios(date_for_sheet_first, date_for_sheet_second, yesterday_Users,
+                                  yesterday_FirstPeopleReceived,
                                   yesterday_QuickFilterPeople,
                                   yesterday_Event_FaceClick, yesterday_Event_FaceRename,
                                   yesterday_Event_FaceAutoShare):
@@ -119,8 +123,8 @@ def update_Distribution_index_ios(from_date, yesterday_Users, yesterday_FirstPeo
         content = Distribution_index_ios.get_all_values()
         row_number = len([row for row in content]) + 1
         # Updating Cells In the Selected Sheet
-        Distribution_index_ios.update_cell(row_number, 1, from_date)
-        Distribution_index_ios.update_cell(row_number, 2, from_date)
+        Distribution_index_ios.update_cell(row_number, 1, date_for_sheet_first)
+        Distribution_index_ios.update_cell(row_number, 2, date_for_sheet_second)
         Distribution_index_ios.update_cell(row_number, 3, yesterday_Users)
         Distribution_index_ios.update_cell(row_number, 4, yesterday_FirstPeopleReceived)
         Distribution_index_ios.update_cell(row_number, 5, yesterday_QuickFilterPeople)
@@ -132,7 +136,7 @@ def update_Distribution_index_ios(from_date, yesterday_Users, yesterday_FirstPeo
         print 'There Was An Error Updating SpreadSheet Distribution_index_ios!\nThe Error Is: ' + str(ex)
 
 
-def update_Distribution_index_ios_Unique(from_date, yesterday_Users_Unique,
+def update_Distribution_index_ios_Unique(date_for_sheet_first, date_for_sheet_second, yesterday_Users_Unique,
                                          yesterday_FirstPeopleReceivedUnique, yesterday_QuickFilterPeopleUnique,
                                          yesterday_Event_FaceClickUnique, yesterday_Event_FaceRename_Unique,
                                          yesterday_Event_FaceAutoShareUnique, number_of_sms_twilio):
@@ -141,8 +145,8 @@ def update_Distribution_index_ios_Unique(from_date, yesterday_Users_Unique,
         content = Distribution_index_ios_unique.get_all_values()
         row_number = len([row for row in content]) + 1
         # Updating Cells In the Selected Sheet
-        Distribution_index_ios_unique.update_cell(row_number, 1, from_date)
-        Distribution_index_ios_unique.update_cell(row_number, 2, from_date)
+        Distribution_index_ios_unique.update_cell(row_number, 1, date_for_sheet_first)
+        Distribution_index_ios_unique.update_cell(row_number, 2, date_for_sheet_second)
         Distribution_index_ios_unique.update_cell(row_number, 3, yesterday_Users_Unique)
         Distribution_index_ios_unique.update_cell(row_number, 4, yesterday_FirstPeopleReceivedUnique)
         Distribution_index_ios_unique.update_cell(row_number, 5, yesterday_QuickFilterPeopleUnique)
@@ -157,7 +161,7 @@ def update_Distribution_index_ios_Unique(from_date, yesterday_Users_Unique,
 
 def parse_users(result_total):
     js = json.loads(result_total)
-    idsContainer = []
+    ids_container = []
     for session in js['Sessions']:
         try:
             id = session['UserId']
@@ -171,10 +175,11 @@ def parse_users(result_total):
             # Making sure The Users Aren't from Cortica's Contact List/ Locations
             if id not in dict_for_numbers and location not in dict_for_locations:
                 if newTime == Yesterday().Date:
-                    idsContainer.append(id)
+                    ids_container.append(id)
         except Exception as ee:
             print str(ee)
-    return len(idsContainer), len(set(idsContainer))
+    print ids_container
+    return len(ids_container), len(set(ids_container))
 
 
 def parse_crashes(result_crashes):
@@ -191,31 +196,72 @@ def parse_crashes(result_crashes):
     return external_users_crashes_counter
 
 
-def parse_event_FirstPeopleReceived(result_events):
-    js = json.loads(result_events)
+# Special Event- Occurs only on New Installations of the app
+def get_first_people_received_list():
+    page = 1
+    ids_container = []
+    total_list = OrderedDict()
+    # Iterate through all of the sessions from 11/9/2016 where we had first implemented First People Event.
+    # Appending all of the userId's into a single list of users
+    while True:
+        url_template = '?apikey=' + REDISCOVER_API_KEY + \
+                       '&apisecret=' + API_SECRET + '&platform=iOS&appversion=2.4.1&fromdate=2016-09-11' + \
+                       '&todate=' + Yesterday().Date
+        url_for_parsing = REQUEST_URL_SESSIONS + url_template + '&page=%d' % page
+        request_json = requests.get(url_for_parsing).text
+        js = json.loads(request_json)
+        if len(js['Sessions']) == 0:
+            break
+        else:
+            try:
+                sessions = js['Sessions']
+                for session in sessions:
+                    try:
+                        id = session['UserId']
+                        location = session['Location']['Description']
+                        if id not in dict_for_numbers and location not in dict_for_locations:
+                            # Some Sessions from the past Doesn't have Events.
+                            try:
+                                events = session['Events']
+                                # Event: First People Received
+                                for event in events:
+                                    if event['Name'] == 'First People Received':
+                                        ids_container.append(id)
+                                        break
+                            except Exception as err:
+                                pass
+                    except Exception as err:
+                        print "An Error occurred while parsing First People Received! Check: " + str(err)
+            except Exception as err:
+                print "No Sessions... Check " + str(err)
+                pass
+            page += 1
+        total_list = ids_container
+    return total_list
+
+
+def parse_event_first_people_received(result_total, unique_user_id_list):
+    js = json.loads(result_total)
+    id_list = []
     sessions = js['Sessions']
-    idsContainer = []
     for session in sessions:
+        userId = session['UserId']
         try:
-            id = session['UserId']
-            location = session['Location']['Description']
-            if id not in dict_for_numbers and location not in dict_for_locations:
-                events = session['Events']
-                # Event: First People Received
-                for event in events:
-                    event_name = 'First People Received'
-                    if event['Name'] == event_name:
-                        idsContainer.append(id)
-                        break
+            events = session['Events']
+            for event in events:
+                if event['Name'] == 'First People Received':
+                    id_list.append(userId)
+                    break
         except Exception as err:
-            print "An Error occurred! Check: " + str(err)
-    return len(idsContainer), len(set(idsContainer))
+            print "Had An Issue retrieving the final \"First People Received\" Event! Check Out: " + str(err)
+    print len(id_list)
+    return len(id_list), len(set(id_list))
 
 
-def parse_event_FaceClick(result_events):
+def parse_event_face_click(result_events):
     js = json.loads(result_events)
     sessions = js['Sessions']
-    idsContainer = []
+    ids_container = []
     for session in sessions:
         try:
             id = session['UserId']
@@ -226,15 +272,15 @@ def parse_event_FaceClick(result_events):
                 for event in events:
                     event_name = 'face click'
                     if event['Name'] == event_name:
-                        idsContainer.append(id)
+                        ids_container.append(id)
                         break
         except Exception as err:
-            print "An Error occurred! Check: " + str(err)
-    return len(idsContainer), len(set(idsContainer))
+            print "An Error occurred! Event FaceClick: " + str(err)
+    return len(ids_container), len(set(ids_container))
 
 
-def parse_event_QuickFilter_People(result_Events_Properties):
-    js = json.loads(result_Events)
+def parse_event_quick_filter_people(result_events):
+    js = json.loads(result_events)
     sessions = js['Sessions']
     idsContainer = []
     for session in sessions:
@@ -246,17 +292,16 @@ def parse_event_QuickFilter_People(result_Events_Properties):
                 # Event: First People Received
                 for event in events:
                     if event['Name'] == 'quickfilter selected':
-                        event_property = 'People'
-                        if event['Properties']['quickfilter'] == event_property:
+                        if event['Properties']['quickfilter'] == 'People':
                             idsContainer.append(id)
                             break
         except Exception as err:
-            print "An Error occurred! Check: " + str(err)
+            print "An Error occurred! Quick Filter: People: " + str(err)
     return len(idsContainer), len((set(idsContainer)))
 
 
-def parse_event_FaceRename(result_Events):
-    js = json.loads(result_Events)
+def parse_event_face_rename(result_events):
+    js = json.loads(result_events)
     sessions = js['Sessions']
     idsContainer = []
     for session in sessions:
@@ -272,12 +317,12 @@ def parse_event_FaceRename(result_Events):
                         idsContainer.append(id)
                         break
         except Exception as err:
-            print "An Error occurred! Check: " + str(err)
+            print "An Error occurred! Event: Face Rename: " + str(err)
     return len(idsContainer), len(set(idsContainer))
 
 
-def parse_event_auto_share(result_Events):
-    js = json.loads(result_Events)
+def parse_event_auto_share(result_events):
+    js = json.loads(result_events)
     sessions = js['Sessions']
     idsContainer = []
     for session in sessions:
@@ -288,12 +333,11 @@ def parse_event_auto_share(result_Events):
                 events = session['Events']
                 # Event: First People Received
                 for event in events:
-                    event_name = 'face autoshare'
-                    if event['Name'] == event_name:
+                    if event['Name'] == 'face autoshare':
                         idsContainer.append(id)
                         break
         except Exception as err:
-            print "An Error occurred! Check: " + str(err)
+            print "An Error occurred! Event: Face Auto share: " + str(err)
     return len(idsContainer), len(set(idsContainer))
 
 
@@ -318,13 +362,14 @@ if __name__ == "__main__":
     args = setup()
     dict_for_numbers = {}
     dict_for_locations = {}
+    yesterdayResults = OrderedDict()
     try:
         # Fetching Data to Exclude
         reading_phone_numbers()
         reading_locations()
         # You can choose which Platform (Android/iOS), App version, UserID
         url_Template = '?apikey=' + REDISCOVER_API_KEY + \
-                       '&apisecret=' + API_SECRET + '&platform=iOS&fromdate=' + Yesterday().Date + \
+                       '&apisecret=' + API_SECRET + '&platform=iOS&appversion=2.4.1&fromdate=' + Yesterday().Date + \
                        '&todate=' + Yesterday().Date
         # Initiating Counter For this Run!
         currentPage = 1
@@ -359,27 +404,28 @@ if __name__ == "__main__":
                 break
             else:
 
-                #############################  Parsing Results ##############################
-
                 # Parsing How Many Users, Unique Users & Crashes
                 current_users, current_unique_users = parse_users(result_Total)
                 yesterday_Sessions += current_users
                 yesterday_Users_Unique += current_unique_users
+                # Parsing Crashes
                 yesterday_Crashes = parse_crashes(result_Crashes)
                 # Parsing Event: First People Received
-                currentFirstPeople, currentUniqueFirstPeople = parse_event_FirstPeopleReceived(result_Events)
-                yesterday_FirstPeopleReceived += currentFirstPeople
-                yesterday_FirstPeopleReceivedUnique += currentUniqueFirstPeople
+                currentFirstPeopleReceived, currentUniqueFirstPeopleReceived = parse_event_first_people_received(
+                        result_Total, get_first_people_received_list())
+                yesterday_FirstPeopleReceived += currentFirstPeopleReceived
+                yesterday_FirstPeopleReceivedUnique += currentUniqueFirstPeopleReceived
                 # Parsing Event: QuickFilter People
-                currentQuickFilterPeople, currentQuickFilterPeopleUnique = parse_event_QuickFilter_People(result_Events)
+                currentQuickFilterPeople, currentQuickFilterPeopleUnique = parse_event_quick_filter_people(
+                        result_Events)
                 yesterday_QuickFilterPeople += currentQuickFilterPeople
                 yesterday_QuickFilterPeopleUnique += currentQuickFilterPeopleUnique
                 # Parsing Event: Face Click
-                currentEventFaceClick, currentEventFaceclickUnique = parse_event_FaceClick(result_Events)
+                currentEventFaceClick, currentEventFaceclickUnique = parse_event_face_click(result_Events)
                 yesterday_Event_FaceClick += currentEventFaceClick
                 yesterday_Event_FaceClickUnique += currentEventFaceclickUnique
                 # Parsing Event: Face Rename
-                currentEventFaceRename, currentEventFaceRenameUnique = parse_event_FaceRename(result_Events)
+                currentEventFaceRename, currentEventFaceRenameUnique = parse_event_face_rename(result_Events)
                 yesterday_Event_FaceRename += currentEventFaceRename
                 yesterday_Event_FaceRename_Unique += currentEventFaceRenameUnique
                 # Parsing EventL Face AutoShare
@@ -388,19 +434,23 @@ if __name__ == "__main__":
                 yesterday_Event_FaceAutoShareUnique += current_Event_FaceAutoshareUnique
 
             currentPage += 1
-        # TODO: Delete Debugging Prints Prior To Upload
         # Updating SpreadSheet According to Results
-        # update_crashes_sheet(Yesterday().DateForSheet, yesterday_Users_Unique, yesterday_Sessions, yesterday_Crashes)
-        # update_Distribution_index_ios(Yesterday().DateForSheet, yesterday_Sessions, yesterday_FirstPeopleReceived,
+        # update_crashes_sheet(Yesterday().DateForSheet_first, Yesterday().DateForSheet_second, yesterday_Users_Unique,
+        #                      yesterday_Sessions, yesterday_Crashes)
+        # update_Distribution_index_ios(Yesterday().DateForSheet_first, Yesterday().DateForSheet_second,
+        #                               yesterday_Sessions, yesterday_FirstPeopleReceived,
         #                               yesterday_QuickFilterPeople, yesterday_Event_FaceClick,
         #                               yesterday_Event_FaceRename,
         #                               yesterday_Event_FaceAutoShare)
-        # update_Distribution_index_ios_Unique(Yesterday().DateForSheet, yesterday_Users_Unique,
+        # update_Distribution_index_ios_Unique(Yesterday().DateForSheet_first, Yesterday().DateForSheet_second,
+        #                                      yesterday_Users_Unique,
         #                                      yesterday_FirstPeopleReceivedUnique, yesterday_QuickFilterPeopleUnique,
         #                                      yesterday_Event_FaceClickUnique, yesterday_Event_FaceRename_Unique,
         #                                      yesterday_Event_FaceAutoShareUnique, number_of_messages_twilio())
-        # TODO: Add Unique Users Method for Editing Distribution_index_ios_unique
-        print str(Yesterday().DateForSheet)
+
+        # TODO: Delete Debugging Prints Prior To Upload
+        print str(Yesterday().DateForSheet_first) + " First Date Format"
+        print str(Yesterday().DateForSheet_second) + " Second Date Format"
         print str(yesterday_Sessions) + " Total External Sessions"
         print str(yesterday_Users_Unique) + " Total External Users- Unique!"
         print str(yesterday_Crashes) + " Total Users Crashes"
@@ -409,7 +459,7 @@ if __name__ == "__main__":
         print str(yesterday_Event_FaceClick) + " Event: Face Click"
         print str(yesterday_Event_FaceRename) + " Event: FaceRename"
         print str(yesterday_Event_FaceAutoShare) + " Event: FaceAutoShare"
-        # Unique Users Report
+        print str(number_of_messages_twilio()) + " Number of Messages- Twilio.com"
         print 'Done!'
     except Exception as e:
-        print "Error In Main Function. Check Out: " + str(e)
+        print "An Issue rose in the Main Function.. Something is Wrong. It might be " + str(e)
